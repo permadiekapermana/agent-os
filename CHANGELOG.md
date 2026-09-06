@@ -125,6 +125,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   every `<t>` descendant, including the ones inside `<rPh>`, so a Japanese
   workbook read back with each reading glued onto the word it annotates
   ([#2053](https://github.com/use-agent-os/agent-os/issues/2053)).
+  workbook read back with each reading glued onto the word it annotates.
+- MS Teams: a final reply longer than one Teams message is delivered whole.
+  `MSTeamsChannel.send` passed `message.content` straight to `send_activity`
+  with nothing capping it, so an answer over Teams' 28 KB message limit went
+  out as one oversized activity — and the gateway's final-reply path only logs
+  a failed `send`, so the answer vanished with nothing in the conversation
+  saying so. `send` now splits on the same `split_text_for_limit` Telegram,
+  Discord and Slack already share.16a4b8cf (fix(channels/msteams): chunk a reply that exceeds the Teams message cap)
 
 ## [2026.9.16] - 2026-09-16
 

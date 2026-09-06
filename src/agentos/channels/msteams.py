@@ -34,7 +34,11 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
-from agentos.channels._util import ChannelAccessPolicy, EventDedupeCache
+from agentos.channels._util import (
+    ChannelAccessPolicy,
+    EventDedupeCache,
+    split_text_for_limit,
+)
 from agentos.channels.contract import (
     ChannelCapabilityProfile,
     ChannelPlatformCapability,
@@ -49,6 +53,14 @@ from agentos.channels.types import (
 )
 
 log = structlog.get_logger(__name__)
+
+# Teams caps a message at 28 KB
+# (https://learn.microsoft.com/en-us/microsoftteams/limits-specifications-teams).
+# #1544 fixed this class of gap -- send() posting an unbounded payload and
+# losing the final reply -- for Telegram and Discord, and PR #2237 for Slack;
+# this adapter is the one that never adopted the shared splitter. 27000
+# leaves headroom for the rest of the activity inside the 28 KB budget.
+_MSTEAMS_MESSAGE_TEXT_LIMIT = 27000
 
 # Channel-contract constants pinned by the adapter audit.
 CAPABILITY_TIER = "GREEN-shipping"
@@ -484,21 +496,46 @@ class MSTeamsChannel:
 
         holder: dict[str, str | None] = {"id": None}
 
-        async def _callback(turn_context: Any) -> None:
-            response = await turn_context.send_activity(message.content)
-            if response is not None and getattr(response, "id", None):
-                holder["id"] = response.id
+        for segment in self._split_content_for_send(message.content):
 
-        await self._adapter.continue_conversation(
-            ref,
-            _callback,
-            bot_id=self._bot_id,
-        )
+            async def _callback(
+                turn_context: Any,
+                _holder: dict[str, str | None] = holder,
+                _text: str = segment,
+            ) -> None:
+                response = await turn_context.send_activity(_text)
+                if response is not None and getattr(response, "id", None):
+                    _holder["id"] = response.id
+
+            await self._adapter.continue_conversation(
+                ref,
+                _callback,
+                bot_id=self._bot_id,
+            )
+        # The id of the last chunk is the one a reply or edit should address,
+        # matching the single-message behaviour a short reply still has.
         self._remember_sent_message(holder["id"], key)
         log.info(
             "msteams.outbound_sent",
             conversation_id=getattr(getattr(ref, "conversation", None), "id", ""),
         )
+
+    @staticmethod
+    def _split_content_for_send(content: str) -> list[str]:
+        """Split *content* into one activity per Teams' message cap.
+
+        Uses the splitter Telegram's, Discord's and Slack's adapters already
+        share (see ``_MSTEAMS_MESSAGE_TEXT_LIMIT``) rather than a fourth,
+        independently-drifting length check.
+        """
+        segments: list[str] = []
+        remaining = content
+        while True:
+            head, tail = split_text_for_limit(remaining, _MSTEAMS_MESSAGE_TEXT_LIMIT)
+            segments.append(head)
+            if not tail:
+                return segments
+            remaining = tail
 
     async def edit(self, message_id: str, content: str) -> None:
         if self._adapter is None:
