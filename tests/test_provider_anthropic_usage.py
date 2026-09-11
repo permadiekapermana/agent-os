@@ -385,3 +385,89 @@ def test_anthropic_http_error_with_non_utf8_body_yields_error_event(monkeypatch)
     assert isinstance(error, ErrorEvent)
     assert error.code == "429"
     assert error.message.startswith("HTTP 429:")
+
+
+def _stream_done(monkeypatch, sse_events: list[dict]) -> DoneEvent:
+    """Run one mocked SSE stream and return its DoneEvent."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=_sse_body(sse_events),
+        )
+
+    transport = httpx.MockTransport(handler)
+    real_async_client = httpx.AsyncClient
+
+    def patched_async_client(*args, **kwargs):
+        kwargs["transport"] = transport
+        return real_async_client(*args, **kwargs)
+
+    monkeypatch.setattr("agentos.provider.anthropic.httpx.AsyncClient", patched_async_client)
+    provider = AnthropicProvider(api_key="test", model="claude-sonnet-4-6")
+
+    async def _collect() -> DoneEvent:
+        done: DoneEvent | None = None
+        async for ev in provider.chat([Message(role="user", content="hi")], config=ChatConfig()):
+            if isinstance(ev, DoneEvent):
+                done = ev
+        assert done is not None
+        return done
+
+    return asyncio.run(_collect())
+
+
+def _stream(delta_usage: dict | None, delta: dict) -> list[dict]:
+    """A single-message stream: one message_delta, as the API emits."""
+    event: dict = {"type": "message_delta", "delta": delta}
+    if delta_usage is not None:
+        event["usage"] = delta_usage
+    return [
+        {
+            "type": "message_start",
+            "message": {
+                "id": "msg_1",
+                "model": "claude-sonnet-4-6",
+                "usage": {"input_tokens": 15, "cache_read_input_tokens": 0},
+            },
+        },
+        event,
+        {"type": "message_stop"},
+    ]
+
+
+def test_message_delta_tolerates_a_null_cache_read_input_tokens(monkeypatch) -> None:
+    """The Messages API types this field ``integer | null``.
+
+    The non-streaming path coerces it through ``_coerce_int``; the streaming
+    path passed it straight into ``max()``, so an explicit ``null`` raised
+    ``TypeError: '>' not supported between instances of 'NoneType' and 'int'``
+    and took down the whole turn.
+    """
+    done = _stream_done(
+        monkeypatch,
+        _stream(
+            {"output_tokens": 30, "cache_read_input_tokens": None},
+            {"stop_reason": "tool_use"},
+        ),
+    )
+
+    assert done.stop_reason == "tool_use"
+    assert done.output_tokens == 30
+    assert done.input_tokens == 15
+
+
+def test_an_ordinary_message_delta_is_reported_verbatim(monkeypatch) -> None:
+    """The guards must not change the shape the API actually sends."""
+    done = _stream_done(
+        monkeypatch,
+        _stream(
+            {"output_tokens": 42, "cache_read_input_tokens": 7},
+            {"stop_reason": "max_tokens"},
+        ),
+    )
+
+    assert done.stop_reason == "max_tokens"
+    assert done.output_tokens == 42
+    assert done.input_tokens == 22  # 15 input + 7 cache read

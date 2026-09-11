@@ -23,6 +23,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- A streamed Anthropic turn crashed with `TypeError` when a `message_delta`
+  carried `cache_read_input_tokens: null`, which the Messages API types as
+  `integer | null`. The non-streaming path coerces that field through
+  `_coerce_int`; the streaming path passed it straight into `max()`. The two
+  paths now agree. The same handler also overwrote `stop_reason` and
+  `output_tokens` unconditionally, so a `message_delta` that omits either field
+  reset `stop_reason` to `end_turn` and zeroed the count; each is now written
+  only when the event actually carries it.
+
 - `ApprovalQueue.wait()` could leave an approval pending forever after its full
   default timeout had elapsed. The wait deadline was measured on the monotonic
   clock but the "has the approval's lifespan expired?" check re-read
