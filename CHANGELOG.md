@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `agentos sessions list`: `--agent`, `--status`, `--channel` and `--since` now
+  widen the fetch the way `--search` already did. All five filter client-side
+  over whatever rows the fetch returned, so the other four searched only the
+  most recent `--limit` rows and reported an empty table for sessions that
+  exist.
+
 ## [2026.9.14] - 2026-09-14
 
 ### Added
