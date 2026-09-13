@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Sessions: `SessionManager.create()` and `.update()` normalize `display_name`,
+  which `agentos.session.naming` documents as the funnel every write path goes
+  through. Only the RPC handlers called it, so a writer reaching the manager
+  directly — a cron job's `--name`, for one — stored the value raw.
+
 ## [2026.9.14] - 2026-09-14
 
 ### Added
