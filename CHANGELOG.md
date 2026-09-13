@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Gateway: a turn whose start-up fails or is cancelled after the concurrency
+  slot is claimed now releases it. `_acquire_fair_slot` claimed the slot under
+  the lock and then did a storage write and an event emit outside it; a failure
+  in that tail left the slot held with the caller's mirror still false, so
+  neither the success path nor the `finally` released it and the runtime wedged.
+
 ## [2026.9.14] - 2026-09-14
 
 ### Added
