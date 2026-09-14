@@ -69,12 +69,15 @@ def _parse_patch(patch_text: str) -> list[PatchOp]:
     # Validate markers
     if not any(line.strip() == "*** Begin Patch" for line in lines):
         raise ValueError("Missing '*** Begin Patch' marker")
-    if not any(line.strip() == "*** End Patch" for line in lines):
-        raise ValueError("Missing '*** End Patch' marker")
 
     # Trim to content between markers
     start_idx = next(i for i, ln in enumerate(lines) if ln.strip() == "*** Begin Patch")
-    end_idx = next(i for i, ln in enumerate(lines) if ln.strip() == "*** End Patch")
+    end_idx = next(
+        (i for i in range(start_idx + 1, len(lines)) if lines[i].strip() == "*** End Patch"),
+        None,
+    )
+    if end_idx is None:
+        raise ValueError("Missing '*** End Patch' marker after '*** Begin Patch'")
     body = lines[start_idx + 1 : end_idx]
 
     ops: list[PatchOp] = []
