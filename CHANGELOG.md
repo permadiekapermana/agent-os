@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `edit_file`: a replacement made through the trimmed-boundary strategy keeps
+  its indentation. The strategy's span started after the line's existing indent
+  and ended before its newline, yet it is listed as indent-blind, so the landing
+  indent was read off a mid-line span that has none and every line of the
+  replacement was dedented out of its body.
+
 ## [2026.9.16] - 2026-09-16
 
 ### Fixed
