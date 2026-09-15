@@ -532,6 +532,7 @@ def create_skill_tools(loader: SkillLoader) -> None:
                 *resources.list_references(),
                 *resources.list_scripts(),
                 *resources.list_assets(),
+                *resources.list_templates(),
             ]
             return [path.relative_to(base).as_posix() for path in found]
         except Exception:  # pragma: no cover — a listing is never worth failing on

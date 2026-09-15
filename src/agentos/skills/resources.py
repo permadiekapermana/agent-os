@@ -52,7 +52,7 @@ def expand_skill_placeholders(text: str, base_dir: str, python: str | None = Non
 
 
 class SkillResources:
-    """Access skill resource directories: scripts/, references/, assets/."""
+    """Access skill resource directories: scripts/, references/, assets/, templates/."""
 
     def __init__(self, skill_dir: Path) -> None:
         self._dir = skill_dir
@@ -82,6 +82,9 @@ class SkillResources:
     def has_assets(self) -> bool:
         return self.assets_dir.is_dir() and any(self.assets_dir.iterdir())
 
+    def has_templates(self) -> bool:
+        return self.templates_dir.is_dir() and any(self.templates_dir.iterdir())
+
     def list_scripts(self) -> list[Path]:
         if not self.scripts_dir.is_dir():
             return []
@@ -96,6 +99,11 @@ class SkillResources:
         if not self.assets_dir.is_dir():
             return []
         return sorted(p for p in self.assets_dir.iterdir() if p.is_file())
+
+    def list_templates(self) -> list[Path]:
+        if not self.templates_dir.is_dir():
+            return []
+        return sorted(p for p in self.templates_dir.iterdir() if p.is_file())
 
     def read_resource(self, name: str) -> str | None:
         """Read a text resource by skill-relative path.
@@ -142,6 +150,24 @@ class SkillResources:
         if relative.parts[:1] == ("scripts",):
             relative = Path(*relative.parts[1:])
         return self._read_text_under(self.scripts_dir, relative)
+
+    def read_asset(self, name: str) -> str | None:
+        """Read an asset file by name. Returns None if not found."""
+        relative = _normalise_resource_path(name)
+        if relative is None:
+            return None
+        if relative.parts[:1] == ("assets",):
+            relative = Path(*relative.parts[1:])
+        return self._read_text_under(self.assets_dir, relative)
+
+    def read_template(self, name: str) -> str | None:
+        """Read a template file by name. Returns None if not found."""
+        relative = _normalise_resource_path(name)
+        if relative is None:
+            return None
+        if relative.parts[:1] == ("templates",):
+            relative = Path(*relative.parts[1:])
+        return self._read_text_under(self.templates_dir, relative)
 
     def _read_text_under(self, root: Path, relative: Path) -> str | None:
         if not relative.parts:
