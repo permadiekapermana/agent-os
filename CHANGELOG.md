@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Artifact delivery: `auto_publish_omitted_workspace_artifacts` now matches written
+  filenames using boundary regex rather than a bare substring search. When a turn wrote
+  an unmentioned file whose name happened to be a substring of another mentioned
+  filename or word (such as `data.json` inside `metadata.json`), the unmentioned file
+  was erroneously published and delivered as an artifact to the user.
+
 ## [2026.9.14] - 2026-09-14
 
 ### Added

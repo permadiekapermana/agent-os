@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -49,7 +50,14 @@ def _text_mentions_written_file(final_text: str, record: dict[str, Any]) -> bool
         str(record.get("path") or ""),
         str(record.get("name") or ""),
     }
-    return any(candidate and candidate.casefold() in text for candidate in candidates)
+    for candidate in candidates:
+        if not candidate:
+            continue
+        needle = candidate.casefold()
+        pattern = rf"(?<![a-zA-Z0-9_]){re.escape(needle)}(?![a-zA-Z0-9_]|\.[a-zA-Z0-9_])"
+        if re.search(pattern, text):
+            return True
+    return False
 
 
 def _published_artifact_keys(ctx: ToolContext) -> set[tuple[str, str]]:

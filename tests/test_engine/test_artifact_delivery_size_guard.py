@@ -78,3 +78,114 @@ def test_backstop_reads_the_file_once_after_the_budget_check(
     assert [item["name"] for item in result.artifacts] == ["report.html"]
     assert result.artifacts[0]["sha256"] == hashlib.sha256(b"<h1>ok</h1>").hexdigest()
     assert result.artifacts[0]["source"] == "auto_publish_omitted"
+
+
+def test_backstop_does_not_publish_unmentioned_file_on_substring_match(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "data.json"
+    target.write_text('{"key": "value"}', encoding="utf-8")
+
+    ctx = ToolContext(
+        caller_kind=CallerKind.WEB,
+        workspace_dir=str(workspace),
+        artifact_media_root=str(tmp_path / "media"),
+        artifact_session_id="session-1",
+        session_key="agent:main:webchat:session-1",
+    )
+    token = current_tool_context.set(ctx)
+    try:
+        record_workspace_file_write(target)
+    finally:
+        current_tool_context.reset(token)
+
+    # The text mentions 'metadata.json', NOT 'data.json'.
+    result = auto_publish_omitted_workspace_artifacts(
+        ctx,
+        final_text="I have updated metadata.json and config.toml.",
+    )
+    assert result.artifacts == []
+    assert ctx.published_artifacts == []
+
+
+def test_backstop_publishes_distinct_filename_surrounded_by_delimiters(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "data.json"
+    target.write_text('{"key": "value"}', encoding="utf-8")
+
+    ctx = ToolContext(
+        caller_kind=CallerKind.WEB,
+        workspace_dir=str(workspace),
+        artifact_media_root=str(tmp_path / "media"),
+        artifact_session_id="session-1",
+        session_key="agent:main:webchat:session-1",
+    )
+    token = current_tool_context.set(ctx)
+    try:
+        record_workspace_file_write(target)
+    finally:
+        current_tool_context.reset(token)
+
+    # Valid mention with quotes / markdown code ticks
+    result = auto_publish_omitted_workspace_artifacts(
+        ctx,
+        final_text="Here is the generated output in `data.json` for your review.",
+    )
+    assert len(result.artifacts) == 1
+    assert result.artifacts[0]["name"] == "data.json"
+
+
+def test_backstop_publishes_filename_ending_with_sentence_punctuation(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "data.json"
+    target.write_text('{"key": "value"}', encoding="utf-8")
+
+    ctx = ToolContext(
+        caller_kind=CallerKind.WEB,
+        workspace_dir=str(workspace),
+        artifact_media_root=str(tmp_path / "media"),
+        artifact_session_id="session-1",
+        session_key="agent:main:webchat:session-1",
+    )
+    token = current_tool_context.set(ctx)
+    try:
+        record_workspace_file_write(target)
+    finally:
+        current_tool_context.reset(token)
+
+    result = auto_publish_omitted_workspace_artifacts(
+        ctx,
+        final_text="I have prepared data.json.",
+    )
+    assert len(result.artifacts) == 1
+    assert result.artifacts[0]["name"] == "data.json"
+
+
+def test_backstop_does_not_publish_on_longer_file_extension(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "data.json"
+    target.write_text('{"key": "value"}', encoding="utf-8")
+
+    ctx = ToolContext(
+        caller_kind=CallerKind.WEB,
+        workspace_dir=str(workspace),
+        artifact_media_root=str(tmp_path / "media"),
+        artifact_session_id="session-1",
+        session_key="agent:main:webchat:session-1",
+    )
+    token = current_tool_context.set(ctx)
+    try:
+        record_workspace_file_write(target)
+    finally:
+        current_tool_context.reset(token)
+
+    # Mentions data.json.bak, not data.json
+    result = auto_publish_omitted_workspace_artifacts(
+        ctx,
+        final_text="I backed up the file to data.json.bak.",
+    )
+    assert result.artifacts == []
+    assert ctx.published_artifacts == []
