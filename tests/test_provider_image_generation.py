@@ -9,6 +9,7 @@ import pytest
 from agentos.provider.image_generation import (
     ImageGenerationRequest,
     ImageGenerationResult,
+    OpenAIImageGenerationProvider,
     OpenRouterImageGenerationProvider,
     get_image_generation_provider,
 )
@@ -671,3 +672,190 @@ def test_image_generation_capability_does_not_expose_agent_tool_when_disabled(
     names = {tool.name for tool in tool_defs}
 
     assert "image_generate" not in names
+
+
+@pytest.mark.asyncio
+async def test_openai_image_provider_sends_response_format_b64_json(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "data": [
+                    {
+                        "b64_json": "YWdlbnRvcw==",
+                        "revised_prompt": "a cute octopus",
+                    }
+                ]
+            }
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        async def post(self, url, *, headers, json):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["json"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr(
+        "agentos.provider.image_generation.httpx.AsyncClient",
+        lambda **kwargs: FakeClient(),
+    )
+
+    provider = OpenAIImageGenerationProvider(api_key="sk-test-openai")
+    result = await provider.generate(
+        ImageGenerationRequest(
+            prompt="draw an octopus",
+            model="dall-e-3",
+            size="1024x1024",
+            output_format="png",
+            timeout_seconds=15.0,
+        )
+    )
+
+    assert captured["url"] == "https://api.openai.com/v1/images/generations"
+    assert captured["headers"] == {"Authorization": "Bearer sk-test-openai"}
+    assert captured["json"] == {
+        "model": "dall-e-3",
+        "prompt": "draw an octopus",
+        "size": "1024x1024",
+        "output_format": "png",
+        "n": 1,
+        "response_format": "b64_json",
+    }
+    assert result.image_bytes == b"agentos"
+    assert result.revised_prompt == "a cute octopus"
+    assert result.provider == "openai"
+    assert result.mime_type == "image/png"
+
+
+@pytest.mark.asyncio
+async def test_openai_image_provider_falls_back_to_url_download(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakePostResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "data": [
+                    {
+                        "url": "https://images.example.com/generated.png",
+                        "revised_prompt": "a sunny landscape",
+                    }
+                ]
+            }
+
+    class FakeGetResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        @property
+        def content(self) -> bytes:
+            return b"downloaded-image-bytes"
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        async def post(self, url, *, headers, json):
+            captured["post_url"] = url
+            return FakePostResponse()
+
+        async def get(self, url):
+            captured["get_url"] = url
+            return FakeGetResponse()
+
+    monkeypatch.setattr(
+        "agentos.provider.image_generation.httpx.AsyncClient",
+        lambda **kwargs: FakeClient(),
+    )
+
+    provider = OpenAIImageGenerationProvider(api_key="sk-test-openai")
+    result = await provider.generate(
+        ImageGenerationRequest(
+            prompt="a sunny landscape",
+            model="dall-e-3",
+            size="1024x1024",
+            output_format="png",
+        )
+    )
+
+    assert captured["get_url"] == "https://images.example.com/generated.png"
+    assert result.image_bytes == b"downloaded-image-bytes"
+    assert result.revised_prompt == "a sunny landscape"
+
+
+@pytest.mark.asyncio
+async def test_image_generate_tool_with_openai_provider(monkeypatch, tmp_path) -> None:
+    from agentos.gateway.config import (
+        ImageGenerationConfig,
+        ImageGenerationOpenAIProviderConfig,
+        ImageGenerationProvidersConfig,
+    )
+    from agentos.tools.builtin import media
+    from agentos.tools.types import ToolContext, current_tool_context
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "data": [
+                    {
+                        "b64_json": base64.b64encode(b"fake-png-content").decode("ascii"),
+                    }
+                ]
+            }
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        async def post(self, url, *, headers, json):
+            return FakeResponse()
+
+    monkeypatch.setattr(
+        "agentos.provider.image_generation.httpx.AsyncClient",
+        lambda **kwargs: FakeClient(),
+    )
+
+    image_config = ImageGenerationConfig(
+        enabled=True,
+        primary="openai/gpt-image-1",
+        providers=ImageGenerationProvidersConfig(
+            openai=ImageGenerationOpenAIProviderConfig(api_key="sk-openai-key")
+        ),
+    )
+    media.configure_image_generation(image_config)
+
+    token = current_tool_context.set(ToolContext(workspace_dir=str(tmp_path)))
+    try:
+        raw = await media.image_generate(
+            prompt="a forest in morning light",
+            filename="morning.png",
+        )
+        payload = json.loads(raw)
+        assert payload["status"] == "ok"
+        assert payload["provider"] == "openai"
+        assert payload["model"] == "gpt-image-1"
+        assert (tmp_path / "morning.png").read_bytes() == b"fake-png-content"
+    finally:
+        current_tool_context.reset(token)
+        media.configure_image_generation(None)

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `OpenAIImageGenerationProvider` sent requests without `response_format: b64_json` and crashed with `RuntimeError` when the API returned standard URL responses; requests now request `b64_json` and download `url` images when provided.
+
 ## [2026.9.16] - 2026-09-16
 
 ### Fixed

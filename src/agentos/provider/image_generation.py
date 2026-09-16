@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import os
 from dataclasses import dataclass, field, replace
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 
@@ -80,13 +80,15 @@ class OpenAIImageGenerationProvider:
         if not api_key:
             raise RuntimeError(f"{self._api_key_env} is not set")
 
-        payload = {
+        payload: dict[str, Any] = {
             "model": request.model,
             "prompt": request.prompt,
             "size": request.size,
-            "output_format": request.output_format,
             "n": 1,
+            "response_format": "b64_json",
         }
+        if request.output_format:
+            payload["output_format"] = request.output_format
         async with httpx.AsyncClient(
             timeout=request.timeout_seconds,
             trust_env=_trust_env(),
@@ -99,14 +101,19 @@ class OpenAIImageGenerationProvider:
             response.raise_for_status()
             data = response.json()
 
-        items = data.get("data") or []
-        if not items:
-            raise RuntimeError("Image generation provider returned no images")
-        first = items[0]
-        b64_json = first.get("b64_json")
-        if not b64_json:
-            raise RuntimeError("Image generation provider returned no b64_json")
-        image_bytes = base64.b64decode(b64_json)
+            items = data.get("data") or []
+            if not items:
+                raise RuntimeError("Image generation provider returned no images")
+            first = items[0]
+            b64_json = first.get("b64_json")
+            if b64_json:
+                image_bytes = base64.b64decode(b64_json)
+            elif first.get("url"):
+                img_resp = await client.get(first["url"])
+                img_resp.raise_for_status()
+                image_bytes = img_resp.content
+            else:
+                raise RuntimeError("Image generation provider returned neither b64_json nor url")
         output_format = request.output_format.lower()
         mime_type = "image/jpeg" if output_format in {"jpg", "jpeg"} else f"image/{output_format}"
         return ImageGenerationResult(
