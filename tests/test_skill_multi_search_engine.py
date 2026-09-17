@@ -688,3 +688,190 @@ def test_search_all_reports_resolved_engines(
 
     assert payload["engines"] == ["duckduckgo"]
     assert payload["errors"] == []
+
+
+def test_ddg_search_zero_or_negative_limit_returns_empty_without_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    search = _import_search()
+    called = False
+
+    def fake_client() -> object:
+        nonlocal called
+        called = True
+        raise AssertionError("client should not be constructed for limit <= 0")
+
+    monkeypatch.setattr(search, "_client", fake_client)
+    assert search._ddg_search("query", 0) == []
+    assert search._ddg_search("query", -1) == []
+    assert not called
+
+
+def test_brave_null_web_field_handled_gracefully(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "test-key")
+    search = _import_search()
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"web": None}
+
+    class _Client:
+        def __enter__(self) -> _Client:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def get(self, *args: object, **kwargs: object) -> _Response:
+            return _Response()
+
+    monkeypatch.setattr(search, "_client", lambda: _Client())
+    results = search._brave_search("query", 5)
+    assert results == []
+
+
+def test_tavily_malformed_results_handled_gracefully(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key")
+    search = _import_search()
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"results": None}
+
+    class _Client:
+        def __enter__(self) -> _Client:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def post(self, *args: object, **kwargs: object) -> _Response:
+            return _Response()
+
+    monkeypatch.setattr(search, "_client", lambda: _Client())
+    results = search._tavily_search("query", 5)
+    assert results == []
+
+
+def test_serpapi_malformed_results_handled_gracefully(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SERPAPI_API_KEY", "test-key")
+    search = _import_search()
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"organic_results": "invalid-string"}
+
+    class _Client:
+        def __enter__(self) -> _Client:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def get(self, *args: object, **kwargs: object) -> _Response:
+            return _Response()
+
+    monkeypatch.setattr(search, "_client", lambda: _Client())
+    results = search._serpapi_search("query", 5)
+    assert results == []
+
+
+def test_firecrawl_malformed_data_handled_gracefully(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "test-key")
+    search = _import_search()
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"success": True, "data": None}
+
+    class _Client:
+        def __enter__(self) -> _Client:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def post(self, *args: object, **kwargs: object) -> _Response:
+            return _Response()
+
+    monkeypatch.setattr(search, "_client", lambda: _Client())
+    results = search._firecrawl_search("query", 5)
+    assert results == []
+
+
+def test_write_stdout_handles_binary_buffer_and_text_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import io
+
+    search = _import_search()
+
+    # Case 1: Stream has a binary buffer (normal sys.stdout in Python)
+    buf = io.BytesIO()
+
+    class MockStdoutWithBuffer:
+        buffer = buf
+
+    monkeypatch.setattr(sys, "stdout", MockStdoutWithBuffer())
+    search._write_stdout("Hello 🚀 世界\n")
+    assert buf.getvalue() == "Hello 🚀 世界\n".encode()
+
+    # Case 2: Text stream without buffer on an ASCII encoding (e.g. legacy/redirected pipe)
+    class MockTextStdout:
+        def __init__(self) -> None:
+            self.content: list[str] = []
+            self.encoding = "ascii"
+
+        def write(self, s: str) -> int:
+            self.content.append(s)
+            return len(s)
+
+        def flush(self) -> None:
+            pass
+
+    mock_text = MockTextStdout()
+    monkeypatch.setattr(sys, "stdout", mock_text)
+    search._write_stdout("Hello 🚀 世界\n")
+    output = "".join(mock_text.content)
+    assert "Hello" in output
+    assert "\\U0001f680" in output or "\\u" in output
+
+
+def test_main_emits_unicode_with_newline_to_stdout(monkeypatch: pytest.MonkeyPatch) -> None:
+    import io
+
+    search = _import_search()
+    monkeypatch.setattr(
+        search,
+        "search_all",
+        lambda *args, **kwargs: {
+            "query": "test",
+            "results": [{"engine": "duckduckgo", "title": "Café ☕", "url": "https://example.com"}],
+            "answers": [],
+            "errors": [],
+        },
+    )
+    buf = io.BytesIO()
+
+    class MockStdout:
+        buffer = buf
+
+    monkeypatch.setattr(sys, "stdout", MockStdout())
+    monkeypatch.setattr(sys, "argv", ["search.py", "--query", "Café ☕"])
+    assert search.main() == 0
+    decoded = buf.getvalue().decode("utf-8")
+    assert decoded.endswith("\n")
+    parsed = json.loads(decoded)
+    assert parsed["results"][0]["title"] == "Café ☕"

@@ -68,6 +68,22 @@ def _client() -> httpx.Client:
     )
 
 
+def _write_stdout(text: str) -> None:
+    """Write output to stdout, surviving a non-UTF-8 stdout encoding."""
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is not None:
+        try:
+            buffer.write(text.encode("utf-8"))
+            buffer.flush()
+            return
+        except (AttributeError, OSError, ValueError):
+            pass
+
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    sys.stdout.write(text.encode(encoding, errors="backslashreplace").decode(encoding))
+    sys.stdout.flush()
+
+
 def _is_ddg_challenge(response: httpx.Response, soup: BeautifulSoup) -> bool:
     if response.status_code == _DDG_CHALLENGE_STATUS:
         return True
@@ -75,6 +91,8 @@ def _is_ddg_challenge(response: httpx.Response, soup: BeautifulSoup) -> bool:
 
 
 def _ddg_search(query: str, limit: int) -> list[Result]:
+    if limit <= 0:
+        return []
     with _client() as client:
         soup: BeautifulSoup | None = None
         for attempt in range(2):
@@ -138,16 +156,21 @@ def _brave_search(query: str, limit: int) -> list[Result]:
             headers={"X-Subscription-Token": api_key},
         )
         response.raise_for_status()
-        payload = response.json()
-        items = payload.get("web", {}).get("results", []) or []
+        raw_json = response.json()
+        payload = raw_json if isinstance(raw_json, dict) else {}
+        web_data = payload.get("web")
+        items = web_data.get("results", []) if isinstance(web_data, dict) else []
+        items = items if isinstance(items, list) else []
         results: list[Result] = []
         for idx, item in enumerate(items[:limit], start=1):
+            if not isinstance(item, dict):
+                continue
             results.append(
                 Result(
                     engine="brave",
-                    title=item.get("title", ""),
-                    url=item.get("url", ""),
-                    snippet=item.get("description", ""),
+                    title=str(item.get("title") or ""),
+                    url=str(item.get("url") or ""),
+                    snippet=str(item.get("description") or ""),
                     rank=idx,
                 )
             )
@@ -169,16 +192,20 @@ def _tavily_search(query: str, limit: int) -> list[Result]:
             },
         )
         response.raise_for_status()
-        payload = response.json()
-        items = payload.get("results", []) or []
+        raw_json = response.json()
+        payload = raw_json if isinstance(raw_json, dict) else {}
+        items = payload.get("results")
+        items = items if isinstance(items, list) else []
         results: list[Result] = []
         for idx, item in enumerate(items[:limit], start=1):
+            if not isinstance(item, dict):
+                continue
             results.append(
                 Result(
                     engine="tavily",
-                    title=item.get("title", ""),
-                    url=item.get("url", ""),
-                    snippet=item.get("content", ""),
+                    title=str(item.get("title") or ""),
+                    url=str(item.get("url") or ""),
+                    snippet=str(item.get("content") or ""),
                     rank=idx,
                 )
             )
@@ -195,16 +222,20 @@ def _serpapi_search(query: str, limit: int) -> list[Result]:
             params={"q": query, "engine": "google", "num": limit, "api_key": api_key},
         )
         response.raise_for_status()
-        payload = response.json()
-        items = payload.get("organic_results", []) or []
+        raw_json = response.json()
+        payload = raw_json if isinstance(raw_json, dict) else {}
+        items = payload.get("organic_results")
+        items = items if isinstance(items, list) else []
         results: list[Result] = []
         for idx, item in enumerate(items[:limit], start=1):
+            if not isinstance(item, dict):
+                continue
             results.append(
                 Result(
                     engine="serpapi",
-                    title=item.get("title", ""),
-                    url=item.get("link", ""),
-                    snippet=item.get("snippet", ""),
+                    title=str(item.get("title") or ""),
+                    url=str(item.get("link") or ""),
+                    snippet=str(item.get("snippet") or ""),
                     rank=idx,
                 )
             )
@@ -236,20 +267,24 @@ def _firecrawl_search(query: str, limit: int) -> list[Result]:
             timeout=FIRECRAWL_TIMEOUT_S,
         )
         response.raise_for_status()
-        payload = response.json()
+        raw_json = response.json()
+        payload = raw_json if isinstance(raw_json, dict) else {}
         if not payload.get("success", True):
             raise RuntimeError(f"firecrawl: {payload.get('error') or 'unsuccessful response'}")
-        data = payload.get("data") or {}
+        data = payload.get("data")
         # v2 nests by source; v1 returned a flat list.
-        items = data.get("web", []) if isinstance(data, dict) else data
+        items = data.get("web") if isinstance(data, dict) else data
+        items = items if isinstance(items, list) else []
         results: list[Result] = []
-        for idx, item in enumerate((items or [])[:limit], start=1):
+        for idx, item in enumerate(items[:limit], start=1):
+            if not isinstance(item, dict):
+                continue
             results.append(
                 Result(
                     engine="firecrawl",
-                    title=item.get("title", ""),
-                    url=item.get("url", ""),
-                    snippet=item.get("description", ""),
+                    title=str(item.get("title") or ""),
+                    url=str(item.get("url") or ""),
+                    snippet=str(item.get("description") or ""),
                     rank=idx,
                 )
             )
@@ -562,7 +597,7 @@ def main() -> int:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(encoded, encoding="utf-8")
     else:
-        sys.stdout.write(encoded)
+        _write_stdout(encoded + "\n")
     return 0
 
 
