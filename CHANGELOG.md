@@ -120,6 +120,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `srt-from-script` truncated a fractional `DURATION_S` to an integer, so
   every cue after a `3.5`-second shot drifted earlier
   ([#2070](https://github.com/use-agent-os/agent-os/issues/2070)).
+- `xlsx` skill scripts (`create_xlsx.py`, `edit_xlsx.py`, `inspect_xlsx.py`):
+  handle malformed JSON, non-dict specifications, non-list row elements, and
+  corrupted workbook files with descriptive errors on stderr and exit code 2
+  instead of unhandled runtime exceptions ([#2596](https://github.com/use-agent-os/agent-os/issues/2596)).
 - `read_spreadsheet`: a phonetic guide (furigana) stored alongside an xlsx
   cell's text is no longer appended to the value. The shared-string reader took
   every `<t>` descendant, including the ones inside `<rPh>`, so a Japanese

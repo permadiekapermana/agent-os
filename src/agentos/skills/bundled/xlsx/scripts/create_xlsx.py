@@ -39,8 +39,10 @@ def _coerce(value: Any) -> Any:
 def build(spec: dict[str, Any]) -> Workbook:
     wb = Workbook()
     default_sheet = wb.active
+    if not isinstance(spec, dict):
+        return wb
     sheets = spec.get("sheets") or []
-    if not sheets:
+    if not isinstance(sheets, list) or not sheets:
         return wb
 
     for idx, sheet_spec in enumerate(sheets):
@@ -52,14 +54,19 @@ def build(spec: dict[str, Any]) -> Workbook:
         else:
             ws = wb.create_sheet(title=str(sheet_spec.get("name") or f"Sheet{idx + 1}"))
 
-        for row in sheet_spec.get("rows", []):
-            ws.append([_coerce(v) for v in row])
+        rows = sheet_spec.get("rows")
+        if isinstance(rows, list):
+            for row in rows:
+                if isinstance(row, (list, tuple)):
+                    ws.append([_coerce(v) for v in row])
 
-        for merged in sheet_spec.get("merged") or []:
-            if isinstance(merged, str):
-                ws.merge_cells(merged)
-            elif isinstance(merged, dict) and "range" in merged:
-                ws.merge_cells(str(merged["range"]))
+        merged_entries = sheet_spec.get("merged")
+        if isinstance(merged_entries, list):
+            for merged in merged_entries:
+                if isinstance(merged, str):
+                    ws.merge_cells(merged)
+                elif isinstance(merged, dict) and "range" in merged:
+                    ws.merge_cells(str(merged["range"]))
 
         freeze = sheet_spec.get("freeze")
         if isinstance(freeze, str) and freeze:
@@ -80,10 +87,25 @@ def main() -> int:
     if not args.spec.is_file():
         print(f"error: spec {args.spec} not found", file=sys.stderr)
         return 2
-    spec = json.loads(args.spec.read_text(encoding="utf-8"))
-    wb = build(spec)
+    try:
+        raw = json.loads(args.spec.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"error: invalid JSON in {args.spec}: {exc}", file=sys.stderr)
+        return 2
+    if not isinstance(raw, dict):
+        print(f"error: spec must be a JSON object, got {type(raw).__name__}", file=sys.stderr)
+        return 2
+    try:
+        wb = build(raw)
+    except Exception as exc:
+        print(f"error: failed to build workbook: {exc}", file=sys.stderr)
+        return 2
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(str(args.out))
+    try:
+        wb.save(str(args.out))
+    except Exception as exc:
+        print(f"error: failed to save workbook to {args.out}: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 

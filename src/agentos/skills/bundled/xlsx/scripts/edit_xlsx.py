@@ -157,12 +157,31 @@ def main() -> int:
     if not args.ops.is_file():
         print(f"error: ops {args.ops} not found", file=sys.stderr)
         return 2
-    raw = json.loads(args.ops.read_text(encoding="utf-8"))
-    ops = raw if isinstance(raw, list) else []
-    wb = load_workbook(filename=str(args.input))
-    applied = apply_ops(wb, ops)
+    try:
+        raw = json.loads(args.ops.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"error: invalid JSON in {args.ops}: {exc}", file=sys.stderr)
+        return 2
+    if not isinstance(raw, list):
+        print(f"error: ops must be a JSON list, got {type(raw).__name__}", file=sys.stderr)
+        return 2
+    ops = raw
+    try:
+        wb = load_workbook(filename=str(args.input))
+    except Exception as exc:
+        print(f"error: failed to load workbook {args.input}: {exc}", file=sys.stderr)
+        return 2
+    try:
+        applied = apply_ops(wb, ops)
+    except Exception as exc:
+        print(f"error: failed to apply ops: {exc}", file=sys.stderr)
+        return 2
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(str(args.out))
+    try:
+        wb.save(str(args.out))
+    except Exception as exc:
+        print(f"error: failed to save workbook to {args.out}: {exc}", file=sys.stderr)
+        return 2
     _write_stdout(json.dumps({"applied": applied}, ensure_ascii=False) + "\n")
     return 0
 

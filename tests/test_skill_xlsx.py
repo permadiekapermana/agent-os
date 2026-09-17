@@ -395,7 +395,6 @@ def test_the_apostrophe_escape_is_not_consumed_without_as_text(tmp_path: Path) -
     assert sheet.cell(row=2, column=1).value == "'=hello"
 
 
-
 def _import_scripts() -> tuple[Any, Any, Any]:
     sys.path.insert(0, str(SCRIPTS))
     try:
@@ -571,3 +570,92 @@ def test_clearing_a_cell_keeps_its_style(
     cell = load_workbook(str(out))["S"].cell(row=1, column=1)
     assert cell.value is None
     assert cell.number_format == "0.00%"
+
+
+def test_create_xlsx_handles_invalid_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    create_xlsx, _, _ = _import_scripts()
+    bad_json = tmp_path / "bad.json"
+    bad_json.write_text("{not valid json", encoding="utf-8")
+    out = tmp_path / "out.xlsx"
+    monkeypatch.setattr(sys, "argv", ["create_xlsx.py", str(bad_json), "--out", str(out)])
+    assert create_xlsx.main() == 2
+    assert not out.exists()
+
+
+def test_create_xlsx_handles_non_dict_spec(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    create_xlsx, _, _ = _import_scripts()
+    list_json = tmp_path / "list.json"
+    list_json.write_text(json.dumps(["not", "a", "dict"]), encoding="utf-8")
+    out = tmp_path / "out.xlsx"
+    monkeypatch.setattr(sys, "argv", ["create_xlsx.py", str(list_json), "--out", str(out)])
+    assert create_xlsx.main() == 2
+    assert not out.exists()
+
+
+def test_create_xlsx_build_handles_malformed_and_non_list_rows() -> None:
+    create_xlsx, _, _ = _import_scripts()
+    spec = {
+        "sheets": [
+            {
+                "name": "MalformedRows",
+                "rows": [["valid1", 10], None, 42, "not a list", ["valid2", 20]],
+            }
+        ]
+    }
+    wb = create_xlsx.build(spec)
+    ws = wb["MalformedRows"]
+    assert ws.max_row == 2
+    assert ws.cell(row=1, column=1).value == "valid1"
+    assert ws.cell(row=2, column=1).value == "valid2"
+
+
+def test_create_xlsx_build_handles_non_dict_and_non_list_spec() -> None:
+    create_xlsx, _, _ = _import_scripts()
+    wb = create_xlsx.build("not a dict")  # type: ignore[arg-type]
+    assert wb.active is not None
+
+
+def test_edit_xlsx_handles_invalid_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    create_xlsx, edit_xlsx, _ = _import_scripts()
+    src = tmp_path / "book.xlsx"
+    create_xlsx.build({"sheets": [{"name": "S", "rows": [["a"]]}]}).save(str(src))
+
+    bad_ops = tmp_path / "bad_ops.json"
+    bad_ops.write_text("{invalid json", encoding="utf-8")
+    out = tmp_path / "out.xlsx"
+    monkeypatch.setattr(sys, "argv", ["edit_xlsx.py", str(src), str(bad_ops), "--out", str(out)])
+    assert edit_xlsx.main() == 2
+    assert not out.exists()
+
+
+def test_edit_xlsx_handles_non_list_ops(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    create_xlsx, edit_xlsx, _ = _import_scripts()
+    src = tmp_path / "book.xlsx"
+    create_xlsx.build({"sheets": [{"name": "S", "rows": [["a"]]}]}).save(str(src))
+
+    dict_ops = tmp_path / "dict_ops.json"
+    dict_ops.write_text(json.dumps({"op": "set_cell"}), encoding="utf-8")
+    out = tmp_path / "out.xlsx"
+    monkeypatch.setattr(sys, "argv", ["edit_xlsx.py", str(src), str(dict_ops), "--out", str(out)])
+    assert edit_xlsx.main() == 2
+    assert not out.exists()
+
+
+def test_edit_xlsx_handles_corrupt_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _, edit_xlsx, _ = _import_scripts()
+    corrupt = tmp_path / "corrupt.xlsx"
+    corrupt.write_text("not a valid zip or xlsx file", encoding="utf-8")
+    ops = tmp_path / "ops.json"
+    ops.write_text(json.dumps([]), encoding="utf-8")
+    out = tmp_path / "out.xlsx"
+    monkeypatch.setattr(sys, "argv", ["edit_xlsx.py", str(corrupt), str(ops), "--out", str(out)])
+    assert edit_xlsx.main() == 2
+    assert not out.exists()
+
+
+def test_inspect_xlsx_handles_corrupt_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _, _, inspect_xlsx = _import_scripts()
+    corrupt = tmp_path / "corrupt.xlsx"
+    corrupt.write_text("not a valid zip or xlsx file", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["inspect_xlsx.py", str(corrupt)])
+    assert inspect_xlsx.main() == 2
