@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- Security redaction: passwords and tokens inside `.pgpass` and `.netrc` / `_netrc`
+  files are now parsed and masked in both terminal output and file read tools.
+
+- `redact`: `.pgpass` and `.netrc`/`_netrc` credential files now have their
+  passwords properly masked across `redact_terminal_output` and `redact_file_output`
+  ([#2620](https://github.com/use-agent-os/agent-os/issues/2620)).
 
 - `edit_file`: an `old_text` that occurs more than once *overlapping* itself is
   now reported as ambiguous instead of silently editing the first occurrence.
