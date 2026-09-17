@@ -322,3 +322,33 @@ def test_rwa_lookup_result_echoes_the_query_as_utf8(monkeypatch: pytest.MonkeyPa
     with CodePageStdout() as code_page_stdout:
         assert rwa_lookup.main() == 0
     assert code_page_stdout.payload()["query"] == NON_ASCII
+
+
+# ── http-fetch ─────────────────────────────────────────────────────────────
+
+
+def test_http_fetch_emits_utf8_on_a_code_page_console(monkeypatch: pytest.MonkeyPatch) -> None:
+    http_fetch = _load("http-fetch/scripts/http_fetch.py", "http_fetch")
+
+    class FakeResponse:
+        def __init__(self) -> None:
+            self.status = 200
+            self.reason = "OK"
+
+        def read(self) -> bytes:
+            return NON_ASCII.encode("utf-8")
+
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+    import urllib.request
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *_a, **_k: FakeResponse())
+    _argv(monkeypatch, "http_fetch.py", "--url", "https://example.com/api")
+
+    with CodePageStdout() as code_page_stdout:
+        assert http_fetch.main() == 0
+    assert NON_ASCII in code_page_stdout.text()

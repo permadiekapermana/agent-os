@@ -14,6 +14,29 @@ import argparse
 import sys
 import urllib.error
 import urllib.request
+from typing import TextIO
+
+
+def _emit(text: str, stream: TextIO = sys.stdout) -> None:
+    """Write text to stream safely across non-UTF-8 console code pages.
+
+    The binary buffer is the primary path: it keeps UTF-8 content intact even
+    when the stream's own encoding cannot represent it. A stream without a
+    usable ``buffer`` still gets the text, escaped rather than raising
+    ``UnicodeEncodeError``.
+    """
+    buffer = getattr(stream, "buffer", None)
+    if buffer is not None:
+        try:
+            buffer.write(text.encode("utf-8"))
+            buffer.flush()
+            return
+        except (AttributeError, OSError, ValueError):
+            pass
+
+    encoding = getattr(stream, "encoding", None) or "utf-8"
+    stream.write(text.encode(encoding, errors="backslashreplace").decode(encoding))
+    stream.flush()
 
 
 def _fetch(
@@ -21,11 +44,13 @@ def _fetch(
     method: str,
     body: bytes,
     timeout: float,
+    headers: dict[str, str] | None = None,
 ) -> tuple[int, bytes, str]:
     """Return ``(status, body_bytes, reason)``. Raises on network errors."""
     req = urllib.request.Request(  # noqa: S310 — URL is operator-supplied per turn
         url,
         data=body if body else None,
+        headers=headers or {},
         method=method,
     )
     if not body:
@@ -34,16 +59,43 @@ def _fetch(
         req.headers.pop("Content-length", None)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
-            return resp.status, resp.read(), resp.reason
+            return resp.status, resp.read(), resp.reason or ""
     except urllib.error.HTTPError as exc:
         # Non-2xx: still return the body so callers can inspect.
-        return exc.code, (exc.read() if hasattr(exc, "read") else b""), exc.reason
+        return exc.code, (exc.read() if hasattr(exc, "read") else b""), exc.reason or ""
+
+
+def _read_stdin_body() -> bytes:
+    """Read binary body from stdin if piped/available, or return empty bytes."""
+    try:
+        if sys.stdin.isatty():
+            return b""
+    except (AttributeError, OSError, ValueError):
+        return b""
+    buffer = getattr(sys.stdin, "buffer", None)
+    if buffer is not None:
+        try:
+            return buffer.read()
+        except (AttributeError, OSError, ValueError):
+            return b""
+    try:
+        text = sys.stdin.read()
+        return text.encode("utf-8")
+    except (AttributeError, OSError, ValueError):
+        return b""
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", required=True)
     parser.add_argument("--method", default="GET")
+    parser.add_argument(
+        "--header",
+        "-H",
+        action="append",
+        default=[],
+        help="Extra request header as 'Key: value'. Repeatable.",
+    )
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--max-bytes", type=int, default=2_000_000)
     args = parser.parse_args(argv)
@@ -65,11 +117,22 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    headers: dict[str, str] = {}
+    for raw_header in args.header:
+        key, sep, val = raw_header.partition(":")
+        if not sep or not key.strip():
+            print(
+                f"invalid header format {raw_header!r}: expected 'Key: value'",
+                file=sys.stderr,
+            )
+            return 2
+        headers[key.strip()] = val.strip()
+
     # Body comes from stdin (per the SKILL.md entrypoint contract).
-    body = sys.stdin.buffer.read() if not sys.stdin.isatty() else b""
+    body = _read_stdin_body()
 
     try:
-        status, raw, reason = _fetch(url, method, body, args.timeout)
+        status, raw, reason = _fetch(url, method, body, args.timeout, headers=headers)
     except urllib.error.URLError as exc:
         print(f"URLError: {exc.reason}", file=sys.stderr)
         return 2
@@ -85,11 +148,14 @@ def main(argv: list[str] | None = None) -> int:
 
     # Lossy decode — meta-skill DAGs need string output for templating.
     text = raw.decode("utf-8", errors="replace")
-    sys.stdout.write(text)
+    _emit(text, sys.stdout)
 
     if not (200 <= status < 300):
         preview = text[:200].replace("\n", " ")
-        print(f"HTTP {status}: {reason}: {preview}", file=sys.stderr)
+        status_msg = (
+            f"HTTP {status}: {reason}: {preview}" if reason else f"HTTP {status}: {preview}"
+        )
+        print(status_msg, file=sys.stderr)
         return 1
     return 0
 

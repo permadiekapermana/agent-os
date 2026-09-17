@@ -120,6 +120,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `srt-from-script` truncated a fractional `DURATION_S` to an integer, so
   every cue after a `3.5`-second shot drifted earlier
   ([#2070](https://github.com/use-agent-os/agent-os/issues/2070)).
+- `http-fetch`: write response output using a binary buffer with safe fallback to
+  prevent `UnicodeEncodeError` on non-UTF-8 console code pages, add support for
+  repeatable `--header` / `-H` arguments, and safely handle `None` response
+  reasons ([#2643](https://github.com/use-agent-os/agent-os/issues/2643)).
 - `read_spreadsheet`: a phonetic guide (furigana) stored alongside an xlsx
   cell's text is no longer appended to the value. The shared-string reader took
   every `<t>` descendant, including the ones inside `<rPh>`, so a Japanese
