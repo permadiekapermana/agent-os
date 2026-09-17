@@ -548,3 +548,140 @@ def test_apply_ops_counts_only_the_replace_runs_that_wrote() -> None:
 
     assert applied == 2
     assert [p.text for p in doc.paragraphs] == ["Hi world", "Last paragraph"]
+
+
+def _create_docx_module() -> object:
+    sys.path.insert(0, str(SCRIPTS))
+    try:
+        import create_docx  # type: ignore[import-not-found]
+    finally:
+        sys.path.pop(0)
+    return create_docx
+
+
+def _inspect_docx_module() -> object:
+    sys.path.insert(0, str(SCRIPTS))
+    try:
+        import inspect_docx  # type: ignore[import-not-found]
+    finally:
+        sys.path.pop(0)
+    return inspect_docx
+
+
+def test_create_docx_invalid_json_exits_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    create_docx = _create_docx_module()
+    spec = tmp_path / "bad.json"
+    spec.write_text("{not valid json", encoding="utf-8")
+    out = tmp_path / "out.docx"
+    monkeypatch.setattr(sys, "argv", ["create_docx.py", str(spec), "--out", str(out)])
+
+    assert create_docx.main() == 2
+    assert not out.exists()
+    assert "error: spec" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bad_spec", [["a", "b"], 123, "string", True])
+def test_create_docx_non_dict_spec_exits_2(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    bad_spec: object,
+) -> None:
+    create_docx = _create_docx_module()
+    spec = tmp_path / "nondict.json"
+    spec.write_text(json.dumps(bad_spec), encoding="utf-8")
+    out = tmp_path / "out.docx"
+    monkeypatch.setattr(sys, "argv", ["create_docx.py", str(spec), "--out", str(out)])
+
+    assert create_docx.main() == 2
+    assert not out.exists()
+    assert "must be a JSON object" in capsys.readouterr().err
+
+
+def test_create_docx_build_ignores_empty_and_malformed_tables() -> None:
+    create_docx = _create_docx_module()
+    # Table with empty rows, non-list rows, and empty list rows
+    spec = {
+        "body": [
+            {"kind": "paragraph", "text": "Before table"},
+            {"kind": "table", "rows": []},
+            {"kind": "table", "rows": [[]]},
+            {"kind": "table", "rows": "not a list"},
+            {"kind": "table", "rows": [["Header"], None, "not a row"]},
+            {"kind": "table", "rows": [["Col1", "Col2"], ["Val1", "Val2"]]},
+            {"kind": "paragraph", "text": "After table"},
+        ]
+    }
+    doc = create_docx.build(spec)
+    assert len(doc.tables) == 2  # The [["Header"]] table and the 2x2 table
+    assert len(doc.paragraphs) == 2
+
+
+def test_edit_docx_invalid_json_ops_exits_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    edit_docx = _edit_docx_module()
+    create_docx = _create_docx_module()
+    src = tmp_path / "src.docx"
+    create_docx.build({"body": [{"kind": "paragraph", "text": "Text"}]}).save(str(src))
+
+    ops = tmp_path / "bad_ops.json"
+    ops.write_text("invalid json {", encoding="utf-8")
+    out = tmp_path / "out.docx"
+    monkeypatch.setattr(sys, "argv", ["edit_docx.py", str(src), str(ops), "--out", str(out)])
+
+    assert edit_docx.main() == 2
+    assert not out.exists()
+    assert "is not valid JSON" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bad_ops", [{"op": "replace_text"}, "string", 123, True])
+def test_edit_docx_non_list_ops_exits_2(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    bad_ops: object,
+) -> None:
+    edit_docx = _edit_docx_module()
+    create_docx = _create_docx_module()
+    src = tmp_path / "src.docx"
+    create_docx.build({"body": [{"kind": "paragraph", "text": "Text"}]}).save(str(src))
+
+    ops = tmp_path / "dict_ops.json"
+    ops.write_text(json.dumps(bad_ops), encoding="utf-8")
+    out = tmp_path / "out.docx"
+    monkeypatch.setattr(sys, "argv", ["edit_docx.py", str(src), str(ops), "--out", str(out)])
+
+    assert edit_docx.main() == 2
+    assert not out.exists()
+    assert "must be a JSON list of operations" in capsys.readouterr().err
+
+
+def test_edit_docx_corrupt_input_file_exits_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    edit_docx = _edit_docx_module()
+    src = tmp_path / "corrupt.docx"
+    src.write_bytes(b"not a valid zip or docx content")
+    ops = tmp_path / "ops.json"
+    ops.write_text("[]", encoding="utf-8")
+    out = tmp_path / "out.docx"
+    monkeypatch.setattr(sys, "argv", ["edit_docx.py", str(src), str(ops), "--out", str(out)])
+
+    assert edit_docx.main() == 2
+    assert not out.exists()
+    assert "could not open docx" in capsys.readouterr().err
+
+
+def test_inspect_docx_corrupt_input_file_exits_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inspect_docx = _inspect_docx_module()
+    src = tmp_path / "corrupt.docx"
+    src.write_bytes(b"not a valid zip or docx content")
+    monkeypatch.setattr(sys, "argv", ["inspect_docx.py", str(src)])
+
+    assert inspect_docx.main() == 2
+    assert "could not open docx" in capsys.readouterr().err

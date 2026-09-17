@@ -43,12 +43,17 @@ def build(spec: dict[str, Any]) -> Document:
             style = item.get("style") or "Normal"
             doc.add_paragraph(str(item.get("text", "")), style=style)
         elif kind == "table":
-            rows = item.get("rows") or []
-            if not rows:
+            rows = item.get("rows")
+            if not rows or not isinstance(rows, list):
                 continue
-            ncols = max(len(r) for r in rows)
-            table = doc.add_table(rows=len(rows), cols=ncols)
-            for r_idx, row in enumerate(rows):
+            valid_rows = [r for r in rows if isinstance(r, list)]
+            if not valid_rows:
+                continue
+            ncols = max((len(r) for r in valid_rows), default=0)
+            if ncols < 1:
+                continue
+            table = doc.add_table(rows=len(valid_rows), cols=ncols)
+            for r_idx, row in enumerate(valid_rows):
                 for c_idx, value in enumerate(row):
                     table.rows[r_idx].cells[c_idx].text = str(value)
         elif kind == "page_break":
@@ -68,8 +73,22 @@ def main() -> int:
     if not args.spec.is_file():
         print(f"error: spec {args.spec} not found", file=sys.stderr)
         return 2
-    spec = json.loads(args.spec.read_text(encoding="utf-8"))
-    doc = build(spec)
+    try:
+        raw = json.loads(args.spec.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        print(f"error: spec {args.spec} is not valid JSON: {exc}", file=sys.stderr)
+        return 2
+    if not isinstance(raw, dict):
+        print(
+            f"error: spec {args.spec} must be a JSON object, got {type(raw).__name__}",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        doc = build(raw)
+    except Exception as exc:
+        print(f"error: failed to build docx: {exc}", file=sys.stderr)
+        return 2
     args.out.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(args.out))
     return 0
