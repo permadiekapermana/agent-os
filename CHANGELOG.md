@@ -120,7 +120,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `srt-from-script` truncated a fractional `DURATION_S` to an integer, so
   every cue after a `3.5`-second shot drifted earlier
   ([#2070](https://github.com/use-agent-os/agent-os/issues/2070)).
+- `pdf-toolkit`: `split.py`, `extract.py`, `form_fill.py`, and `merge.py` now
+  validate page range specifications and catch corrupted or unreadable PDF
+  files gracefully with exit code 2 and formatted error messages instead of
+  crashing with unhandled tracebacks ([#2607](https://github.com/use-agent-os/agent-os/issues/2607)).
 - `read_spreadsheet`: a phonetic guide (furigana) stored alongside an xlsx
+
   cell's text is no longer appended to the value. The shared-string reader took
   every `<t>` descendant, including the ones inside `<rPh>`, so a Japanese
   workbook read back with each reading glued onto the word it annotates

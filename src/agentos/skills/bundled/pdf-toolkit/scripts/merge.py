@@ -66,13 +66,28 @@ def requested_pages(spec: str | None, total: int) -> list[int]:
         if not token:
             continue
         if "-" in token:
-            lo_s, hi_s = token.split("-", 1)
-            lo, hi = int(lo_s), int(hi_s)
+            parts = token.split("-")
+            if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+                raise ValueError(f"invalid range format {token!r}")
+            try:
+                lo, hi = int(parts[0].strip()), int(parts[1].strip())
+            except ValueError as exc:
+                raise ValueError(f"non-integer page in range {token!r}") from exc
+            if lo < 1 or hi < 1:
+                raise ValueError(f"page numbers must be positive, got {token!r}")
             if lo > hi:
                 lo, hi = hi, lo
             pages.extend(range(lo, hi + 1))
         else:
-            pages.append(int(token))
+            try:
+                page_num = int(token)
+            except ValueError as exc:
+                raise ValueError(f"non-integer page {token!r}") from exc
+            if page_num < 1:
+                raise ValueError(f"page numbers must be positive, got {token!r}")
+            pages.append(page_num)
+    if not pages:
+        raise ValueError(f"empty page specification {spec!r}")
     return pages
 
 
@@ -118,8 +133,15 @@ def load_manifest(path: Path) -> list[dict[str, str]]:
                 f'manifest entry {index} has a non-string "file": {entry["file"]!r}'
             )
         pages = entry.get("pages")
-        if pages is not None and not isinstance(pages, str):
-            raise ManifestError(f'manifest entry {index} has a non-string "pages": {pages!r}')
+        if pages is not None:
+            if not isinstance(pages, str):
+                raise ManifestError(f'manifest entry {index} has a non-string "pages": {pages!r}')
+            try:
+                requested_pages(pages, 1)
+            except ValueError as exc:
+                raise ManifestError(
+                    f'manifest entry {index} has invalid "pages" spec: {exc}'
+                ) from exc
         items.append(entry)
     return items
 
@@ -157,12 +179,23 @@ def merge(items: Iterable[dict[str, str]], out: Path) -> MergeResult:
             print(f"warn: missing {path}", file=sys.stderr)
             result.missing_files.append(str(path))
             continue
-        reader = PdfReader(str(path))
-        total = len(reader.pages)
-        skipped = [p for p in requested_pages(item.get("pages"), total) if not 1 <= p <= total]
+        try:
+            reader = PdfReader(str(path))
+            total = len(reader.pages)
+        except Exception as exc:
+            print(f"warn: failed to read {path}: {exc}", file=sys.stderr)
+            result.missing_files.append(str(path))
+            continue
+        try:
+            req_pages = requested_pages(item.get("pages"), total)
+            valid_pages = parse_ranges(item.get("pages"), total)
+        except ValueError as exc:
+            print(f"warn: invalid page spec for {path}: {exc}", file=sys.stderr)
+            continue
+        skipped = [p for p in req_pages if not 1 <= p <= total]
         if skipped:
             result.skipped.append((str(path), skipped))
-        for page_num in parse_ranges(item.get("pages"), total):
+        for page_num in valid_pages:
             writer.add_page(reader.pages[page_num - 1])
             result.pages_written += 1
     if result.pages_written == 0:

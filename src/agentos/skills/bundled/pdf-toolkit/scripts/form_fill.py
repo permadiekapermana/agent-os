@@ -88,9 +88,12 @@ def main() -> int:
         print(f"error: input {args.input} not found", file=sys.stderr)
         return 2
     if args.list_fields:
-        _write_stdout(
-            json.dumps(list_fields(args.input), ensure_ascii=False, indent=2, default=str) + "\n"
-        )
+        try:
+            fields = list_fields(args.input)
+        except Exception as exc:
+            print(f"error: failed to read form {args.input}: {exc}", file=sys.stderr)
+            return 2
+        _write_stdout(json.dumps(fields, ensure_ascii=False, indent=2, default=str) + "\n")
         return 0
     if args.data is None or args.out is None:
         print("error: data and --out are required unless --list-fields", file=sys.stderr)
@@ -115,7 +118,11 @@ def main() -> int:
         )
         return 2
     data = {str(k): str(v) for k, v in raw.items()}
-    pages = fill(args.input, data, args.out)
+    try:
+        pages = fill(args.input, data, args.out)
+    except Exception as exc:
+        print(f"error: failed to fill {args.input}: {exc}", file=sys.stderr)
+        return 2
     _write_stdout(
         json.dumps({"pages_processed": pages, "fields": len(data)}, ensure_ascii=False) + "\n"
     )

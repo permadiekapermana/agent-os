@@ -55,13 +55,28 @@ def split_ranges(spec: str) -> list[list[int]]:
         if not token:
             continue
         if "-" in token:
-            lo_s, hi_s = token.split("-", 1)
-            lo, hi = int(lo_s), int(hi_s)
+            parts = token.split("-")
+            if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+                raise ValueError(f"invalid range format {token!r}")
+            try:
+                lo, hi = int(parts[0].strip()), int(parts[1].strip())
+            except ValueError as exc:
+                raise ValueError(f"non-integer page in range {token!r}") from exc
+            if lo < 1 or hi < 1:
+                raise ValueError(f"page numbers must be positive, got {token!r}")
             if lo > hi:
                 lo, hi = hi, lo
             groups.append(list(range(lo, hi + 1)))
         else:
-            groups.append([int(token)])
+            try:
+                page_num = int(token)
+            except ValueError as exc:
+                raise ValueError(f"non-integer page {token!r}") from exc
+            if page_num < 1:
+                raise ValueError(f"page numbers must be positive, got {token!r}")
+            groups.append([page_num])
+    if not groups:
+        raise ValueError(f"empty page specification {spec!r}")
     return groups
 
 
@@ -114,7 +129,14 @@ def main() -> int:
     if not args.input.is_file():
         print(f"error: input {args.input} not found", file=sys.stderr)
         return 2
-    result = split(args.input, args.pages, args.out)
+    try:
+        result = split(args.input, args.pages, args.out)
+    except ValueError as exc:
+        print(f"error: invalid page specification: {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:
+        print(f"error: failed to read PDF {args.input}: {exc}", file=sys.stderr)
+        return 2
     if not result.parts:
         print(
             f"error: no page in {args.pages!r} exists in {args.input} ({result.total_pages} pages)",
