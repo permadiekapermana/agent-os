@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Cron RPC: `cron.update` no longer silently wipes an existing webhook
+  delivery (URL + token) on a `sessionTarget="main"` job whenever a
+  payload-related field (e.g. `text`, `payloadKind`) is edited without also
+  re-sending `delivery`. Webhook delivery is explicitly permitted for
+  `main`; only channel/announce delivery is unsupported there, and only
+  that case is still cleared.
+
 ## [2026.9.18] - 2026-09-18
 
 ### Added
