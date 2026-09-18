@@ -327,6 +327,45 @@ async def test_rpc_update_job_round_trips_tool_policy() -> None:
     assert result["toolPolicy"]["deny"] == ["web_fetch"]
 
 
+async def test_rpc_update_tool_policy_partial_patch_inherits_omitted_fields() -> None:
+    """docs/cli.md: "omit the key to inherit rather than inventing a name."
+
+    Sending `toolPolicy` with only `deny` set must not silently drop the
+    job's existing `profile`/`allow`/`alsoAllow` — that would silently widen
+    the job's effective tool access on an edit that only meant to add one
+    more denial.
+    """
+    current_job = CronJob(
+        id="drink",
+        name="Drink",
+        handler_key="agent_run",
+        payload={"kind": AGENT_TURN_KIND, "task": "drink water", "agent_id": "main"},
+        tool_policy={
+            "profile": "minimal",
+            "allow": ["memory_search"],
+            "also_allow": ["web_fetch"],
+            "deny": ["exec_command"],
+        },
+    )
+    scheduler = _FakeScheduler(job=current_job)
+
+    result = await _handle_cron_update(
+        {"id": "drink", "toolPolicy": {"deny": ["exec_command", "write_file"]}},
+        RpcContext(conn_id="test", cron_scheduler=scheduler),
+    )
+
+    assert scheduler.updated["tool_policy"] == {
+        "profile": "minimal",
+        "allow": ["memory_search"],
+        "also_allow": ["web_fetch"],
+        "deny": ["exec_command", "write_file"],
+    }
+    assert result["toolPolicy"]["profile"] == "minimal"
+    assert result["toolPolicy"]["allow"] == ["memory_search"]
+    assert result["toolPolicy"]["alsoAllow"] == ["web_fetch"]
+    assert result["toolPolicy"]["deny"] == ["exec_command", "write_file"]
+
+
 async def test_rpc_create_job_round_trips_elevated() -> None:
     scheduler = _FakeScheduler()
 

@@ -1076,7 +1076,18 @@ async def _handle_cron_update(params: dict | None, ctx: RpcContext) -> dict[str,
             )
 
     if "toolPolicy" in params or "tool_policy" in params:
-        patch["tool_policy"] = _tool_policy_from_params(params)
+        # docs/cli.md documents `--tool-policy` as narrowing the existing
+        # policy — "omit the key to inherit rather than inventing a name" —
+        # but `_tool_policy_from_params` only ever emits the keys the caller
+        # included (see `_normalize_tool_policy`'s `if key in raw` guards).
+        # Assigning that dict straight to the patch replaced the job's whole
+        # `tool_policy`, so updating just `deny` silently dropped an existing
+        # `profile`/`allow`/`alsoAllow` — widening a job's effective tool
+        # access with no warning. Merge onto the current policy instead, the
+        # same fix already applied below for an `elevated`-only patch.
+        merged = dict(current_job.tool_policy or {})
+        merged.update(_tool_policy_from_params(params))
+        patch["tool_policy"] = merged
     elif "elevated" in params:
         # Toggling elevation alone must not drop the allow/deny lists already on
         # the job — merge into the stored policy instead of replacing it.

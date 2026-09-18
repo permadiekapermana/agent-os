@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- `cron.update`: patching a job's `toolPolicy` with only some keys set (e.g.
+  `{"deny": [...]}` to add one more denial) silently dropped the job's
+  existing `profile`/`allow`/`alsoAllow`, widening its effective tool access
+  with no warning — contrary to the documented "omit the key to inherit"
+  contract. The partial policy is now merged onto the job's current policy,
+  the same fix already applied when a caller patches `elevated` alone.
+
 ## [2026.9.18] - 2026-09-18
 
 ### Added
