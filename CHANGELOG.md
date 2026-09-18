@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- `gmgn-wallet-analysis` skill: the "N of M coins in profit" figure no longer
+  overcounts by summing the raw 0-200% multiplier bucket in as if every token
+  in it were a win. That bucket also holds every token bought but not yet
+  sold (realized ROI 0, sitting on the band's lower edge) -- `unsettled`
+  already existed to name this discrepancy for the chart caveat, but the
+  headline "in profit" count kept including it, showing a number up to 4x
+  the wallet's actual win rate. Uses the win-rate-derived `implied_winners`
+  instead.
 
 - `edit_file`: an `old_text` that occurs more than once *overlapping* itself is
   now reported as ambiguous instead of silently editing the first occurrence.
