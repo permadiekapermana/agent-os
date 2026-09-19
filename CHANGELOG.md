@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- Gateway RPC `logs.tail`: a burst of more new log lines than the caller's
+  `limit` between two polls no longer silently drops the older excess.
+  `_handle_logs_tail` read every unread byte, kept only the newest `limit`
+  matching lines, but advanced the cursor to end-of-file regardless — so the
+  discarded lines were permanently unreachable even though the response's own
+  `has_more: true` implied a follow-up call would return them. Advances the
+  cursor to just past the oldest window actually returned instead, so a
+  follow-up call with the new cursor picks up where the last one left off.
 
 - `edit_file`: an `old_text` that occurs more than once *overlapping* itself is
   now reported as ambiguous instead of silently editing the first occurrence.
