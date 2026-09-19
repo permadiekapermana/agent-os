@@ -1200,3 +1200,33 @@ def test_replace_run_still_indexes_only_body_paragraphs() -> None:
 
     assert applied == 1
     assert doc.paragraphs[2].text == "3rd"
+
+
+def test_build_handles_null_values_in_elements_and_tables() -> None:
+    """Null/None values in headings, paragraphs, cells, or metadata must not become 'None'."""
+    create_docx = _create_docx_module()
+
+    spec = {
+        "metadata": {"title": None, "author": None},
+        "body": [
+            {"kind": "heading", "level": 1, "text": None},
+            {"kind": "paragraph", "text": None},
+            {"kind": "table", "rows": [["Header", "Notes"], ["Item 1", None], [None, 42], None]},
+        ],
+    }
+
+    doc = create_docx.build(spec)
+
+    assert doc.core_properties.title == ""
+    assert doc.core_properties.author == "python-docx"
+    assert doc.paragraphs[0].text == ""
+    assert doc.paragraphs[1].text == ""
+
+    table = doc.tables[0]
+    assert table.rows[0].cells[0].text == "Header"
+    assert table.rows[0].cells[1].text == "Notes"
+    assert table.rows[1].cells[0].text == "Item 1"
+    assert table.rows[1].cells[1].text == ""
+    assert table.rows[2].cells[0].text == ""
+    assert table.rows[2].cells[1].text == "42"
+    assert table.rows[3].cells[0].text == ""

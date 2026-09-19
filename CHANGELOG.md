@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- `docx`: `create_docx.py` stringified `null` / `None` values into literal `"None"`
+  strings across headings, paragraphs, table cells, and metadata properties.
+  These fields now default cleanly to empty strings rather than embedding
+  `"None"` in generated Word documents.
 
 - `edit_file`: an `old_text` that occurs more than once *overlapping* itself is
   now reported as ambiguous instead of silently editing the first occurrence.
