@@ -15,6 +15,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from agentos import __version__
+from agentos.gateway.access import peer_is_trusted_proxy
 from agentos.gateway.config import GatewayConfig
 
 # Vite fingerprints production assets, so successful asset responses can be
@@ -72,8 +73,20 @@ _TEMPLATE_VERSION_SUFFIX = str(int(time.time()))
 
 
 def _request_ws_url(request: Request, config: GatewayConfig) -> str:
-    """Build the browser-facing websocket URL from the current request."""
-    forwarded_host = request.headers.get("x-forwarded-host")
+    """Build the browser-facing websocket URL from the current request.
+
+    ``X-Forwarded-Host`` / ``X-Forwarded-Proto`` are only read when the
+    transport peer is a configured trusted proxy. ``peer_is_trusted_proxy`` is
+    the single shared gate for forwarded headers across the gateway (HTTP
+    admission, RPC auth, rate-limit client IP) precisely because these headers
+    are attacker-controlled otherwise, and this route is served before the
+    console holds a token: without the gate any unauthenticated caller can
+    choose the ``ws_url`` the console is told to connect to.
+    """
+    peer_ip = request.client.host if request.client else None
+    trust_forwarded = peer_is_trusted_proxy(config.auth.trusted_proxy, peer_ip)
+
+    forwarded_host = request.headers.get("x-forwarded-host") if trust_forwarded else None
     if forwarded_host:
         host = forwarded_host.split(",")[0].strip()
     else:
@@ -81,7 +94,7 @@ def _request_ws_url(request: Request, config: GatewayConfig) -> str:
         if config.host in {"0.0.0.0", "::"} and host == "testserver":
             host = f"127.0.0.1:{config.port}"
 
-    proto = request.headers.get("x-forwarded-proto")
+    proto = request.headers.get("x-forwarded-proto") if trust_forwarded else None
     if proto:
         scheme = proto.split(",")[0].strip().lower()
     else:

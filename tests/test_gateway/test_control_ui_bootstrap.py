@@ -32,6 +32,10 @@ def dist_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return dist
 
 
+#: Transport peer address Starlette's TestClient reports for every request.
+_TEST_PEER = "testclient"
+
+
 def _client(config: GatewayConfig | None = None) -> TestClient:
     resolved = config or GatewayConfig()
     app = Starlette(routes=control_ui.create_control_ui_routes(resolved))
@@ -170,6 +174,7 @@ def test_bootstrap_ws_url_respects_x_forwarded_host_and_proto(dist_dir: Path) ->
     config = GatewayConfig()
     config.host = "127.0.0.1"
     config.port = 18791
+    config.auth.trusted_proxy = _TEST_PEER
 
     response = _client(config).get(
         "/control/api/bootstrap",
@@ -187,6 +192,7 @@ def test_bootstrap_ws_url_handles_multi_value_forwarded_proto_and_case(dist_dir:
     config = GatewayConfig()
     config.host = "127.0.0.1"
     config.port = 18791
+    config.auth.trusted_proxy = _TEST_PEER
 
     response = _client(config).get(
         "/control/api/bootstrap",
@@ -198,3 +204,70 @@ def test_bootstrap_ws_url_handles_multi_value_forwarded_proto_and_case(dist_dir:
 
     assert response.status_code == 200
     assert response.json()["ws_url"] == "wss://gateway.internal/ws"
+
+
+class TestForwardedHeadersRequireATrustedProxy:
+    """``/api/bootstrap`` is pre-auth, so forwarded headers need the shared gate.
+
+    ``peer_is_trusted_proxy`` is documented as "the single shared gate:
+    admission (HTTP middleware and RPC auth) requires it, and X-Forwarded-For
+    consumption requires it — a header from any other peer is never honored."
+    ``ws_url`` is the address the console is told to open its RPC socket on, so
+    honoring the headers from an arbitrary peer lets an unauthenticated caller
+    choose it. ``auth.trusted_proxy`` defaults to ``None`` (empty set), so the
+    default deployment is the one that must not honor them.
+    """
+
+    def test_untrusted_peer_cannot_choose_the_ws_host(self, dist_dir: Path) -> None:
+        config = GatewayConfig()
+        config.host = "127.0.0.1"
+        config.port = 18791
+
+        response = _client(config).get(
+            "/control/api/bootstrap",
+            headers={
+                "x-forwarded-host": "attacker.example",
+                "x-forwarded-proto": "https",
+            },
+        )
+
+        assert response.status_code == 200
+        assert "attacker.example" not in response.json()["ws_url"]
+
+    def test_untrusted_peer_falls_back_to_the_real_request(self, dist_dir: Path) -> None:
+        config = GatewayConfig()
+        config.host = "127.0.0.1"
+        config.port = 18791
+
+        response = _client(config).get(
+            "/control/api/bootstrap",
+            headers={"x-forwarded-host": "attacker.example", "x-forwarded-proto": "https"},
+        )
+
+        assert response.json()["ws_url"] == "ws://testserver/ws"
+
+    def test_a_different_trusted_proxy_does_not_trust_this_peer(self, dist_dir: Path) -> None:
+        """The gate compares the transport peer, not the header contents."""
+        config = GatewayConfig()
+        config.auth.trusted_proxy = "10.0.0.7"
+
+        response = _client(config).get(
+            "/control/api/bootstrap",
+            headers={"x-forwarded-host": "attacker.example"},
+        )
+
+        assert "attacker.example" not in response.json()["ws_url"]
+
+    def test_trusted_peer_still_gets_the_proxy_supplied_origin(self, dist_dir: Path) -> None:
+        config = GatewayConfig()
+        config.auth.trusted_proxy = _TEST_PEER
+
+        response = _client(config).get(
+            "/control/api/bootstrap",
+            headers={
+                "x-forwarded-host": "console.example.com",
+                "x-forwarded-proto": "https",
+            },
+        )
+
+        assert response.json()["ws_url"] == "wss://console.example.com/ws"

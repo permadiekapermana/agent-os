@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- Gateway Control UI: the unauthenticated `/control/api/bootstrap` route no
+  longer honors `X-Forwarded-Host` / `X-Forwarded-Proto` from an arbitrary
+  peer. `_request_ws_url` read both headers with no trusted-proxy gate, so any
+  caller could choose the `ws_url` the console is told to open its RPC socket
+  on -- with `auth.trusted_proxy` unset (the default) nothing is trusted, yet
+  the headers were still consumed. Forwarded headers now pass through
+  `peer_is_trusted_proxy`, the gate the rest of the gateway already uses for
+  `X-Forwarded-For`; a correctly configured proxy is unaffected.
 
 - `edit_file`: an `old_text` that occurs more than once *overlapping* itself is
   now reported as ambiguous instead of silently editing the first occurrence.
