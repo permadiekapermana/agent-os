@@ -7,6 +7,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- `apply_patch`: a malformed patch now tells the model what to change. The
+  failure envelope forwards an exception's own text only for
+  `SafeToolUserMessage` subclasses, so every parse refusal -- the missing
+  `*** Begin Patch` / `*** End Patch` marker, a line without a `+` prefix, a
+  hunk line without a ` `/`-`/`+` prefix, an unparseable `@@@` header, an update
+  block with a unified-diff header or no hunks (#2837), and the "No operations
+  found ... Nothing was applied" refusal that is raised loudly on purpose --
+  reached the model as "The tool received an invalid argument".
+  These messages quote the model's own patch text and nothing read off disk,
+  so they are now `SafeToolError` and are forwarded, the same conversion #2888
+  made for `edit_file`, `grep_search`, `projects_*` and `web_fetch`.
+  `_apply_hunk`'s context-mismatch messages quote file content and are
+  deliberately left as they were.
 
 - `apply_patch`: an `*** Update File:` block with no `@@@ ` hunks — a
   unified-diff `@@ -1,1 +1,1 @@` header, a note, or nothing at all — is refused

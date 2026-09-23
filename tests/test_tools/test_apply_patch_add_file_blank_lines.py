@@ -15,7 +15,7 @@ import pytest
 
 from agentos.tools.builtin import patch as patch_tool
 from agentos.tools.builtin.patch import AddFile, _parse_patch
-from agentos.tools.types import ToolContext, current_tool_context
+from agentos.tools.types import SafeToolError, ToolContext, current_tool_context
 
 
 def _original_async(fn: Callable[..., Awaitable[str]]) -> Callable[..., Awaitable[str]]:
@@ -95,7 +95,7 @@ def test_unprefixed_text_line_is_rejected_not_dropped() -> None:
     pass
 *** End Patch"""
 
-    with pytest.raises(ValueError, match=r"Add File: sample\.py.*'\+' prefix.*'    pass'"):
+    with pytest.raises(SafeToolError, match=r"Add File: sample\.py.*'\+' prefix.*'    pass'"):
         _parse_patch(patch_text)
 
 

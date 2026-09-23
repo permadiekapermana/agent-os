@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from agentos.tools.builtin import patch as patch_tool
-from agentos.tools.types import ToolContext, current_tool_context
+from agentos.tools.types import SafeToolError, ToolContext, current_tool_context
 
 
 def _original_async(fn: Callable[..., Awaitable[str]]) -> Callable[..., Awaitable[str]]:
@@ -151,7 +151,7 @@ def test_an_end_marker_only_in_the_preamble_is_reported_as_missing() -> None:
     The message is the one this parser has always raised for a missing end
     marker; callers that match on it keep working.
     """
-    with pytest.raises(ValueError, match=r"Missing '\*\*\* End Patch' marker"):
+    with pytest.raises(SafeToolError, match=r"Missing '\*\*\* End Patch' marker"):
         patch_tool._parse_patch(
             "*** End Patch\n*** Begin Patch\n*** Add File: sample.txt\n+hello\n"
         )
@@ -159,5 +159,5 @@ def test_an_end_marker_only_in_the_preamble_is_reported_as_missing() -> None:
 
 def test_a_missing_begin_marker_is_still_reported() -> None:
     """Passes either way by design -- guards the branch the fix reordered."""
-    with pytest.raises(ValueError, match=r"Missing '\*\*\* Begin Patch' marker"):
+    with pytest.raises(SafeToolError, match=r"Missing '\*\*\* Begin Patch' marker"):
         patch_tool._parse_patch("*** Add File: sample.txt\n+hello\n*** End Patch\n")

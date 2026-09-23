@@ -13,6 +13,7 @@ from agentos.tools.builtin import patch as patch_tool
 from agentos.tools.registry import get_default_registry
 from agentos.tools.types import (
     InteractionMode,
+    SafeToolError,
     ToolContext,
     ToolError,
     current_tool_context,
@@ -572,5 +573,5 @@ async def test_apply_patch_supports_hunk_header_without_explicit_counts(
 def test_parse_hunk_header_rejects_malformed_input(header: str) -> None:
     from agentos.tools.builtin.patch import _parse_hunk_header
 
-    with pytest.raises(ValueError, match="Invalid hunk header"):
+    with pytest.raises(SafeToolError, match="Invalid hunk header"):
         _parse_hunk_header(header)

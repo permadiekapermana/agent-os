@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from agentos.tools.builtin import patch as patch_tool
-from agentos.tools.types import ToolContext, current_tool_context
+from agentos.tools.types import SafeToolError, ToolContext, current_tool_context
 
 NOTHING_APPLIED = r"No operations found between '\*\*\* Begin Patch' and '\*\*\* End Patch'"
 
@@ -161,7 +161,7 @@ async def test_a_line_indented_less_than_the_block_is_rejected_not_guessed(
         "    *** End Patch\n"
     )
 
-    with pytest.raises(ValueError, match=r"expected a '\+' prefix"):
+    with pytest.raises(SafeToolError, match=r"expected a '\+' prefix"):
         await _apply(tmp_path, patch_text)
     assert list(tmp_path.iterdir()) == []
 
@@ -193,14 +193,14 @@ async def test_a_line_indented_less_than_the_block_is_rejected_not_guessed(
 async def test_markers_without_an_operation_raise_instead_of_reporting_no_changes(
     tmp_path: Path, patch_text: str
 ) -> None:
-    with pytest.raises(ValueError, match=NOTHING_APPLIED):
+    with pytest.raises(SafeToolError, match=NOTHING_APPLIED):
         await _apply(tmp_path, patch_text)
     assert list(tmp_path.iterdir()) == []
 
 
 def test_the_floor_error_names_the_directives_the_parser_accepts() -> None:
     """The message is what the model reads when it retries."""
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(SafeToolError) as excinfo:
         patch_tool._parse_patch("*** Begin Patch\n*** End Patch\n")
 
     message = str(excinfo.value)

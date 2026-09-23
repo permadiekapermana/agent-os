@@ -16,7 +16,7 @@ from agentos.sandbox.integration import sandboxed
 from agentos.tools.builtin._lines import split_lines_keepends
 from agentos.tools.path_policy import reject_foreign_host_path
 from agentos.tools.registry import tool
-from agentos.tools.types import ToolError, current_tool_context
+from agentos.tools.types import SafeToolError, ToolError, current_tool_context
 from agentos.tools.write_tracking import record_workspace_file_write
 
 log = structlog.get_logger(__name__)
@@ -94,7 +94,7 @@ def _marker_span(lines: list[str]) -> tuple[int, int]:
         None,
     )
     if start_idx is None:
-        raise ValueError("Missing '*** Begin Patch' marker")
+        raise SafeToolError("Missing '*** Begin Patch' marker")
 
     indent = _leading_ws(lines[start_idx])
     end_idx = next(
@@ -106,7 +106,7 @@ def _marker_span(lines: list[str]) -> tuple[int, int]:
         None,
     )
     if end_idx is None:
-        raise ValueError("Missing '*** End Patch' marker")
+        raise SafeToolError("Missing '*** End Patch' marker")
     return start_idx, end_idx
 
 
@@ -143,6 +143,16 @@ def _dedent_body(body: list[str]) -> list[str]:
     ]
 
 
+#: Parse-layer refusals are :class:`SafeToolError`, not plain ``ValueError``.
+#: The failure envelope forwards a message only for ``SafeToolUserMessage``
+#: subclasses, so every authored line below otherwise reached the model as
+#: "The tool received an invalid argument" -- including the "Nothing was
+#: applied" refusal that exists precisely to be loud. These messages quote the
+#: model's own patch text and nothing read off disk, which is what makes them
+#: safe to forward; ``_apply_hunk``'s context-mismatch messages quote file
+#: content and deliberately stay ``ValueError``.
+
+
 def _parse_patch(patch_text: str) -> list[PatchOp]:
     """Parse patch text into a list of PatchOp objects."""
     lines = patch_text.splitlines()
@@ -174,7 +184,7 @@ def _parse_patch(patch_text: str) -> list[PatchOp]:
                     content_lines.append("")
                     trailing_bare_blanks += 1
                 else:
-                    raise ValueError(
+                    raise SafeToolError(
                         f"Invalid line in '*** Add File: {path}' block "
                         f"(expected a '+' prefix): {raw!r}"
                     )
@@ -206,7 +216,7 @@ def _parse_patch(patch_text: str) -> list[PatchOp]:
                             # hunk-line prefix is rejected here, not silently
                             # excluded from both the context check and the
                             # rebuilt content further down in _apply_hunk.
-                            raise ValueError(
+                            raise SafeToolError(
                                 f"Invalid line in '*** Update File: {path}' hunk "
                                 f"(expected a ' ', '-', or '+' prefix): {raw!r}"
                             )
@@ -229,12 +239,12 @@ def _parse_patch(patch_text: str) -> list[PatchOp]:
                         if hunk_line.startswith("@@ ")
                         else ""
                     )
-                    raise ValueError(
+                    raise SafeToolError(
                         f"Invalid line in '*** Update File: {path}' block "
                         f"(expected a '@@@ ' hunk header): {hunk_line!r}{hint}"
                     )
             if not hunks:
-                raise ValueError(
+                raise SafeToolError(
                     f"No hunks found in '*** Update File: {path}' block: expected at "
                     "least one '@@@ -old_start,count +new_start,count @@@' hunk header"
                 )
@@ -251,7 +261,7 @@ def _parse_patch(patch_text: str) -> list[PatchOp]:
     if not ops:
         # Loud, not "Applied patch: no changes": a patch that fails is retried,
         # one that reports success while dropping every operation is believed.
-        raise ValueError(
+        raise SafeToolError(
             "No operations found between '*** Begin Patch' and '*** End Patch': "
             "expected a '*** Add File: <path>', '*** Update File: <path>' or "
             "'*** Delete File: <path>' line. Nothing was applied."
@@ -297,7 +307,7 @@ def _parse_hunk_header(header: str) -> Hunk:
 
     m = re.match(r"@@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@@", header.strip())
     if not m:
-        raise ValueError(f"Invalid hunk header: {header!r}")
+        raise SafeToolError(f"Invalid hunk header: {header!r}")
     old_start = int(m.group(1))
     old_count = int(m.group(2)) if m.group(2) is not None else (0 if old_start == 0 else 1)
     new_start = int(m.group(3))

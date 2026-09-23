@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from agentos.tools.builtin import patch as patch_tool
-from agentos.tools.types import ToolContext, current_tool_context
+from agentos.tools.types import SafeToolError, ToolContext, current_tool_context
 
 
 def _original_async(fn: Callable[..., Awaitable[str]]) -> Callable[..., Awaitable[str]]:
@@ -264,7 +264,7 @@ def test_hunk_line_without_a_recognized_prefix_is_rejected_not_dropped() -> None
     )
 
     with pytest.raises(
-        ValueError,
+        SafeToolError,
         match=r"Update File: foo\.py.*' ', '-', or '\+' prefix.*'malformed_line_no_prefix'",
     ):
         patch_tool._parse_patch(patch_text)
@@ -277,7 +277,7 @@ async def test_apply_patch_rejects_rather_than_silently_drops_a_malformed_hunk_l
     target = tmp_path / "foo.py"
     target.write_text("line1\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match=r"'malformed_line_no_prefix'"):
+    with pytest.raises(SafeToolError, match=r"'malformed_line_no_prefix'"):
         await _apply(
             tmp_path,
             "*** Begin Patch\n"

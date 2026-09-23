@@ -20,7 +20,7 @@ import pytest
 
 from agentos.tools.builtin import patch as patch_tool
 from agentos.tools.builtin.patch import UpdateFile, _parse_patch
-from agentos.tools.types import ToolContext, current_tool_context
+from agentos.tools.types import SafeToolError, ToolContext, current_tool_context
 
 
 def _original_async(fn: Callable[..., Awaitable[str]]) -> Callable[..., Awaitable[str]]:
@@ -50,7 +50,7 @@ async def test_a_unified_diff_header_is_refused_and_the_file_is_untouched(
     target.write_text("print('old')\n", encoding="utf-8")
     mtime_before = target.stat().st_mtime_ns
 
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(SafeToolError) as excinfo:
         await _apply(tmp_path, _update("@@ -1,1 +1,1 @@\n-print('old')\n+print('new')\n"))
 
     message = str(excinfo.value)
@@ -63,12 +63,12 @@ async def test_a_unified_diff_header_is_refused_and_the_file_is_untouched(
 
 def test_a_unified_diff_header_gets_the_hint_that_names_it() -> None:
     """The two-@ header is the shape models write most; say what it is."""
-    with pytest.raises(ValueError, match=r"unified-diff header; hunks here open with '@@@'"):
+    with pytest.raises(SafeToolError, match=r"unified-diff header; hunks here open with '@@@'"):
         _parse_patch(_update("@@ -1,1 +1,1 @@\n-a\n+b\n"))
 
 
 def test_a_note_outside_a_hunk_does_not_get_the_unified_diff_hint() -> None:
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(SafeToolError) as excinfo:
         _parse_patch(_update("# bump the version\n"))
 
     assert "'# bump the version'" in str(excinfo.value)
@@ -80,7 +80,7 @@ async def test_an_empty_update_block_is_refused(tmp_path: Path) -> None:
     (tmp_path / "app.py").write_text("x\n", encoding="utf-8")
 
     with pytest.raises(
-        ValueError, match=r"No hunks found in '\*\*\* Update File: app\.py' block"
+        SafeToolError, match=r"No hunks found in '\*\*\* Update File: app\.py' block"
     ) as excinfo:
         await _apply(tmp_path, _update(""))
 
@@ -88,7 +88,7 @@ async def test_an_empty_update_block_is_refused(tmp_path: Path) -> None:
 
 
 def test_an_update_block_of_only_blank_lines_is_refused() -> None:
-    with pytest.raises(ValueError, match=r"No hunks found"):
+    with pytest.raises(SafeToolError, match=r"No hunks found"):
         _parse_patch(_update("\n\n   \n"))
 
 
@@ -102,7 +102,7 @@ def test_the_message_names_the_block_not_the_patch() -> None:
         "*** Delete File: third.py\n"
         "*** End Patch\n"
     )
-    with pytest.raises(ValueError, match=r"'\*\*\* Update File: second\.py' block"):
+    with pytest.raises(SafeToolError, match=r"'\*\*\* Update File: second\.py' block"):
         _parse_patch(text)
 
 
@@ -124,7 +124,7 @@ async def test_a_bad_update_block_fails_the_whole_patch_before_any_write(
         "*** Begin Patch\n*** Add File: new.txt\n+hello\n*** Update File: app.py\n*** End Patch\n"
     )
 
-    with pytest.raises(ValueError, match=r"No hunks found"):
+    with pytest.raises(SafeToolError, match=r"No hunks found"):
         await _apply(tmp_path, text)
 
     assert not (tmp_path / "new.txt").exists()
@@ -164,7 +164,7 @@ def test_blank_lines_after_a_hunk_still_belong_to_that_hunk() -> None:
 
 
 def test_a_malformed_triple_at_header_keeps_its_own_error() -> None:
-    with pytest.raises(ValueError, match=r"Invalid hunk header"):
+    with pytest.raises(SafeToolError, match=r"Invalid hunk header"):
         _parse_patch(_update("@@@ not a header @@@\n-a\n+b\n"))
 
 
