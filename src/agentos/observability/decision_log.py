@@ -195,16 +195,34 @@ def build_intent_summary(message: str, max_chars: int = _INTENT_SUMMARY_MAX_CHAR
     text = _URL_RE.sub("[url]", text)
     text = _EMAIL_RE.sub("[email]", text)
     text = _SECRET_ASSIGN_RE.sub(lambda m: f"{m.group(1)}=[secret]", text)
-    text = _LONG_SECRET_RE.sub("[secret]", text)
+    # Absolute paths are redacted before the long-token rule, not after. A path
+    # is a run of ``[A-Za-z0-9_/-]``, so ``_LONG_SECRET_RE`` matched any path
+    # whose dot-free prefix reached 32 characters -- an ordinary project path --
+    # and replaced it with ``[secret]`` before ``_ABS_PATH_RE`` ever saw it.
+    # That threw away the basename this summary deliberately keeps and labelled
+    # a filename as a credential. ``_redact_path_keep_basename`` re-applies the
+    # long-token rule to the basename it keeps, so a secret stored *as* a
+    # filename is still not handed back by the reorder.
     text = _ABS_PATH_RE.sub(_redact_path_keep_basename, text)
+    text = _LONG_SECRET_RE.sub("[secret]", text)
     if len(text) > max_chars:
         text = text[: max(0, max_chars - 1)].rstrip() + "…"
     return text
 
 
 def _redact_path_keep_basename(match: re.Match[str]) -> str:
+    """Replace an absolute path with its basename, unless that leaks a secret.
+
+    The basename is what makes the summary useful for history mining, but this
+    substitution now runs *before* ``_LONG_SECRET_RE``, so a token parked at
+    the end of a path (``/home/alice/tokens/sk-...``) would be handed back
+    where it used to be redacted. A basename the long-token rule would have
+    caught is dropped entirely instead.
+    """
     basename = match.group(0).rstrip("/").rsplit("/", 1)[-1]
-    return f"[path:{basename}]" if basename else "[path]"
+    if not basename or _LONG_SECRET_RE.search(basename):
+        return "[path]"
+    return f"[path:{basename}]"
 
 
 def _default_log_dir() -> Path:

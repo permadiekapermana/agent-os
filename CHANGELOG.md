@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- Decision log: `build_intent_summary` no longer reports an ordinary file path
+  as a redacted credential. An absolute path is a run of `[A-Za-z0-9_/-]`,
+  which is exactly what the long-token rule matches at 32 characters or more,
+  and that rule ran first -- so any path whose dot-free prefix reached 32
+  characters (`/home/alice/projects/backend/src/handlers.py`, a few
+  directories deep) became `/[secret]` before the path rule ever saw it,
+  throwing away the basename the summary deliberately keeps for history
+  mining. The path rule now runs first, and the basename it keeps is re-checked
+  against the long-token rule so a secret parked at the end of a path is still
+  dropped. Relative paths are unchanged: they are not machine-local and the
+  path rule does not match them.
 
 - `apply_patch`: an `*** Update File:` block with no `@@@ ` hunks — a
   unified-diff `@@ -1,1 +1,1 @@` header, a note, or nothing at all — is refused
